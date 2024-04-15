@@ -1,0 +1,59 @@
+name: build-docs
+
+on:
+  push:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-docs:
+    name: build-docs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v3
+      - name: Generate cache keys
+        id: get_ref_keys
+        run: |
+          echo 'ccache=ccache-ubuntu-gcc-x86-'$(date -u +%Y-w%W) >> $GITHUB_OUTPUT
+      - name: Retrieve ccache cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ steps.get_ref_keys.outputs.ccache }}-${{ github.ref }}
+          restore-keys: |
+            ${{ steps.get_ref_keys.outputs.ccache }}-refs/heads/main
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q -y
+          sudo apt-get install -y ninja-build pkg-config python3-pip doxygen
+          sudo apt-get install -y python3-pyelftools python3-setuptools python3-wheel meson gcc
+          sudo apt-get install -y build-essential ccache sphinx-common python3-sphinx-rtd-theme
+      - name: Generate docs
+        run: |
+          export CC='ccache gcc'
+          mkdir -p ~/.ccache
+          echo "cache_dir = ~/.ccache" > ~/.ccache/ccache.conf
+          ccache -p
+          meson build -Denable_docs=true -Denable_drivers="net/ring" -Dmax_numa_nodes=1
+          ninja -C build
+          mkdir -p gen_docs
+          mv build/doc/guides/html gen_docs/guides_html
+          mv build/doc/api/html gen_docs/api_html
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ github.workspace }}/gen_docs
+      - name: Deploy Github Pages
+        uses: actions/deploy-pages@v4.0.5
